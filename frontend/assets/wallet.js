@@ -27,6 +27,30 @@ function injectedWallets() {
   return list;
 }
 
+// ---------- Mobile wallet apps ----------
+// A browser cannot list the apps installed on a phone (privacy). The reliable route is
+// a deep link that reopens this page INSIDE the wallet's own browser, where the wallet
+// injects itself and connects like a desktop extension.
+const isMobile = () => /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "");
+
+const MOBILE_WALLETS = [
+  {
+    name: "MetaMask",
+    initial: "M",
+    link: () => `https://metamask.app.link/dapp/${location.host}${location.pathname}${location.search}`,
+  },
+  {
+    name: "Trust Wallet",
+    initial: "T",
+    link: () => `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(location.href)}`,
+  },
+  {
+    name: "Coinbase Wallet",
+    initial: "C",
+    link: () => `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(location.href)}`,
+  },
+];
+
 // ---------- WalletConnect (lazy-loaded) ----------
 let wcProvider;
 async function initWC() {
@@ -121,12 +145,15 @@ function buildModal(resolve, reject) {
   overlay.onclick = (e) => { if (e.target === overlay) cancel(); };
   document.addEventListener("keydown", onKey);
 
-  // Injected wallets
+  // Injected wallets (desktop extensions, and wallets' in-app browsers on mobile)
   const wallets = injectedWallets();
+  const mobile = isMobile();
   if (wallets.length === 0) {
     const none = document.createElement("p");
     none.className = "wallet-hint";
-    none.textContent = "No browser wallet detected. Use WalletConnect below, or install MetaMask.";
+    none.textContent = mobile
+      ? "No in-app wallet detected. Open this page in a wallet app below, or use WalletConnect."
+      : "No browser wallet detected. Use WalletConnect below, or install MetaMask.";
     list.appendChild(none);
   }
   for (const w of wallets) {
@@ -140,15 +167,33 @@ function buildModal(resolve, reject) {
     list.appendChild(b);
   }
 
+  // On a phone: deep links that reopen this page inside the wallet app's browser.
+  if (mobile) {
+    const msep = document.createElement("div");
+    msep.className = "wallet-sep";
+    msep.innerHTML = "<span>open in a wallet app</span>";
+    list.appendChild(msep);
+    for (const w of MOBILE_WALLETS) {
+      const b = document.createElement("button");
+      b.className = "wallet-opt";
+      b.innerHTML =
+        `<span class="wallet-ico-fallback">${w.initial}</span><span>${w.name}</span>` +
+        `<span class="faint" style="margin-left:auto;font-size:13px">↗</span>`;
+      b.onclick = () => { location.href = w.link(); };
+      list.appendChild(b);
+    }
+  }
+
   // Divider + WalletConnect
   const sep = document.createElement("div");
   sep.className = "wallet-sep";
   sep.innerHTML = "<span>or</span>";
   list.appendChild(sep);
 
+  const wcLabel = mobile ? "· choose your wallet app" : "· mobile / QR";
   const wc = document.createElement("button");
   wc.className = "wallet-opt";
-  wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">· mobile / QR</span></span>`;
+  wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">${wcLabel}</span></span>`;
   wc.onclick = async () => {
     err.classList.remove("show");
     wc.disabled = true;
@@ -158,7 +203,7 @@ function buildModal(resolve, reject) {
       choose(provider, { name: "WalletConnect" });
     } catch (e) {
       wc.disabled = false;
-      wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">· mobile / QR</span></span>`;
+      wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">${wcLabel}</span></span>`;
       showError(e.message || "WalletConnect failed");
     }
   };
