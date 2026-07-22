@@ -57,7 +57,7 @@ async function initWC() {
   if (wcProvider) return wcProvider;
   const projectId = getWalletConnectProjectId();
   if (!projectId) {
-    throw new Error("Add a WalletConnect project ID in Network settings (free at cloud.reown.com).");
+    throw new Error("WalletConnect is not configured (missing project ID).");
   }
   const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2");
   wcProvider = await EthereumProvider.init({
@@ -69,14 +69,22 @@ async function initWC() {
       name: "CertVerify",
       description: "Academic certificate verification",
       url: location.origin,
-      icons: [],
+      icons: [`${location.origin}/favicon.ico`],
+      // Without this the wallet app has nowhere to send the user back to, so MetaMask
+      // just stays open after approval. `universal` is the https URL the phone reopens.
+      redirect: { native: "", universal: location.origin },
     },
   });
   return wcProvider;
 }
+
 async function getWalletConnectProvider() {
   const p = await initWC();
-  await p.connect(); // opens the WalletConnect QR modal
+  // Record the intent BEFORE the round-trip. If the browser discards this tab while the
+  // user is approving in the wallet app, silentReconnect can still restore the session
+  // when they come back — otherwise the page would look disconnected despite a live session.
+  try { localStorage.setItem(LAST, "walletconnect"); } catch {}
+  await p.connect(); // opens the WalletConnect modal / deep-links to the wallet
   return p;
 }
 
