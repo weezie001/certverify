@@ -27,7 +27,7 @@ export function setContractAddress(v) {
 // WalletConnect / Reown project ID — enables the mobile / QR-code login option.
 // PASTE YOUR PROJECT ID HERE (free at cloud.reown.com) to turn mobile login on for
 // everyone. It is a PUBLIC client identifier, safe to ship in the frontend.
-const DEFAULT_WC_PROJECT_ID = "";
+const DEFAULT_WC_PROJECT_ID = "01e152ef04a73471181bcf63b4429251";
 
 export function getWalletConnectProjectId() {
   // Hidden escape hatch (the settings panel is gone): visiting any page with
