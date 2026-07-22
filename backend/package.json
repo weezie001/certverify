@@ -1,0 +1,20 @@
+{
+  "name": "certverify-backend",
+  "version": "0.1.0",
+  "description": "Node.js + ethers.js API: bridges the CertificateRegistry contract and MySQL, with recompute-and-compare verification.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "db:init": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
+    "express": "^4.19.2"
+  }
+}

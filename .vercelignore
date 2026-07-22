@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.*
+!.env.example
+/artifacts
+/cache
+/contracts
+/test
+/deployments
+/scripts
+*.db
+*.db-wal
+*.db-shm

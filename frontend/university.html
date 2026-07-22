@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CertVerify — University dashboard</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem("certverify.theme");
+      if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="index.html"><span class="dot">C</span> CertVerify</a>
+      <div class="nav-links">
+        <a href="index.html">Verify</a>
+        <a href="university.html">University</a>
+        <a href="admin.html">Admin</a>
+      </div>
+      <div class="nav-spacer"></div>
+      <span class="wallet-pill hidden" id="walletPill"><span class="dotmark"></span><span id="walletAddr"></span><span class="wallet-x" aria-hidden="true">✕</span></span>
+      <button class="btn btn-ghost" id="connectBtn">Connect wallet</button>
+      <button class="icon-btn" data-theme-toggle aria-label="Toggle theme">
+        <svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <main class="container page">
+    <div class="page-head">
+      <span class="eyebrow">University dashboard</span>
+      <h1 class="display" style="font-size:clamp(1.9rem,4vw,2.6rem);margin-top:10px">Issue &amp; manage certificates</h1>
+      <p class="lead">Connect your registered institution wallet to issue new certificates and revoke ones issued in error.</p>
+    </div>
+
+    <div class="notice" id="connectNotice">Connect your wallet to begin. Only wallets the platform admin has registered can issue certificates.</div>
+    <div class="notice hidden" id="notRegistered" style="border-color:color-mix(in srgb, var(--warning) 50%, transparent)">This wallet is <strong>not a registered institution</strong>. Ask the platform admin to register it first.</div>
+
+    <div class="bento hidden" id="dash">
+      <!-- Identity -->
+      <div class="tile b6">
+        <div class="row-between">
+          <div><div class="tile-eyebrow">Signed in as</div><div class="tile-title" id="instName" style="margin:6px 0 0"></div></div>
+          <span class="badge ok"><span class="dotmark"></span> Registered institution</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="tile b2 tile-stat">
+        <div class="tile-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>
+        <div class="num" id="statIssued">—</div><div class="lbl">Certificates issued</div>
+      </div>
+      <div class="tile b2 tile-stat">
+        <div class="tile-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6L9 17l-5-5"/></svg></div>
+        <div class="num" id="statActive">—</div><div class="lbl">Active</div>
+      </div>
+      <div class="tile b2 tile-stat">
+        <div class="tile-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></div>
+        <div class="num" id="statRevoked">—</div><div class="lbl">Revoked</div>
+      </div>
+
+      <!-- Manual issue -->
+      <div class="tile b3">
+        <div class="tile-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M12 11v6M9 14h6"/></svg></div>
+        <h2 class="tile-title">Issue a certificate</h2>
+        <p class="muted" style="margin:0 0 16px">Enter a graduate's details. The fingerprint goes on-chain; personal details are stored off-chain.</p>
+        <form id="issueForm">
+          <div class="grid-2">
+            <div class="field"><label>Full name</label><input class="input" name="fullName" required /></div>
+            <div class="field"><label>Matric number</label><input class="input" name="matricNumber" required /></div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label>Degree title</label><input class="input" name="degreeTitle" required placeholder="e.g. BTech Cyber Security" /></div>
+            <div class="field"><label>Department</label><input class="input" name="department" required /></div>
+          </div>
+          <div class="field" style="max-width:240px"><label>Year of graduation</label><input class="input" name="yearOfGraduation" required placeholder="2025" /></div>
+          <button class="btn btn-primary" type="submit" id="issueBtn">Issue certificate</button>
+          <div class="alert" id="issueAlert"></div>
+        </form>
+        <div class="hidden" id="issuedBox" style="margin-top:18px">
+          <div class="muted" style="font-size:14px;margin-bottom:8px">Certificate hash — give this code to the student:</div>
+          <div class="copy-row"><code class="mono" id="issuedHash"></code><button class="btn btn-ghost" id="copyHash" type="button">Copy</button></div>
+        </div>
+      </div>
+
+      <!-- Issue from result file -->
+      <div class="tile b3">
+        <div class="tile-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+        <h2 class="tile-title">Issue from a result file</h2>
+        <p class="muted" style="margin:0 0 14px">Upload a CSV or JSON of graduates. Each record is hashed and issued on-chain — one wallet confirmation per record.</p>
+        <input type="file" id="fileInput" accept=".csv,.json,application/json,text/csv" class="hidden" />
+        <div class="dropzone" id="dropzone">
+          <div><strong>Drop a .csv / .json</strong> here, or <button type="button" class="link-btn" id="browseBtn">browse</button></div>
+          <div class="faint" style="font-size:12px;margin-top:6px">Columns: fullName, matricNumber, degreeTitle, department, yearOfGraduation</div>
+        </div>
+        <button type="button" class="link-btn" id="tmplBtn" style="font-size:13px;margin-top:10px">Download CSV template</button>
+        <div id="filePreview" class="hidden" style="margin-top:14px"></div>
+        <button class="btn btn-primary hidden" id="issueFileBtn" style="margin-top:12px">Issue certificates</button>
+        <div class="alert" id="fileAlert"></div>
+      </div>
+
+      <!-- Issued certificates -->
+      <div class="tile b6">
+        <div class="row-between" style="margin-bottom:16px">
+          <div><div class="tile-eyebrow">Records</div><h2 class="tile-title" style="margin:4px 0 0">Issued certificates</h2></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="input input-mono" id="certSearch" placeholder="Filter…" style="width:170px" />
+            <button class="btn btn-ghost" id="refreshCerts" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="alert" id="tableAlert"></div>
+        <div class="table-wrap">
+          <table class="dtable" id="certTable">
+            <thead><tr><th>Student</th><th>Matric</th><th>Degree</th><th>Year</th><th>Issued</th><th>Status</th><th>Hash</th><th></th></tr></thead>
+            <tbody id="certTbody"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="certEmpty" style="display:none;margin-top:14px">No certificates issued yet.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <footer><div class="container">CertVerify — university dashboard. On-chain writes are signed by your wallet; CertVerify never holds your keys.</div></footer>
+
+  <script type="module">
+    import { getApiBase } from "./assets/config.js";
+    import { connectWallet, silentReconnect, onWalletChange, disconnect, getContract, shortAddr, computeHashViaApi } from "./assets/eth.js";
+    import { wireChrome, showAlert, hideAlert, setLoading, copyText } from "./assets/ui.js";
+    wireChrome();
+
+    let signer = null, address = null, institutionName = null;
+
+    const els = {
+      connectBtn: document.getElementById("connectBtn"),
+      pill: document.getElementById("walletPill"),
+      addr: document.getElementById("walletAddr"),
+      connectNotice: document.getElementById("connectNotice"),
+      notRegistered: document.getElementById("notRegistered"),
+      dash: document.getElementById("dash"),
+      instName: document.getElementById("instName"),
+    };
+
+    async function applyConnection(conn) {
+      hideAll();
+      signer = conn.signer; address = conn.address;
+      els.addr.textContent = shortAddr(address);
+      els.pill.classList.remove("hidden");
+      els.connectBtn.classList.add("hidden");
+      const inst = await getContract(signer).institutions(address);
+      if (!inst.registered) { els.notRegistered.classList.remove("hidden"); els.dash.classList.add("hidden"); return; }
+      institutionName = inst.name;
+      els.instName.textContent = inst.name;
+      els.dash.classList.remove("hidden");
+      loadDashboard();
+    }
+
+    els.connectBtn.addEventListener("click", async () => {
+      hideAll();
+      setLoading(els.connectBtn, true, "Connecting…");
+      try { await applyConnection(await connectWallet()); }
+      catch (err) { els.connectNotice.classList.remove("hidden"); els.connectNotice.textContent = err.message; }
+      finally { setLoading(els.connectBtn, false); }
+    });
+
+    // Click the wallet pill to disconnect.
+    els.pill.style.cursor = "pointer";
+    els.pill.title = "Click to disconnect";
+    els.pill.addEventListener("click", async () => { await disconnect(); location.reload(); });
+
+    // Reconnect across refresh / page switches, and react to wallet changes.
+    onWalletChange(() => location.reload());
+    (async () => {
+      const conn = await silentReconnect();
+      if (conn) { try { await applyConnection(conn); } catch {} }
+    })();
+
+    function hideAll() {
+      els.connectNotice.classList.add("hidden");
+      els.notRegistered.classList.add("hidden");
+    }
+
+    // ---- Shared issue logic ----
+    async function issueOne(d) {
+      const details = { ...d, institutionName };
+      const hash = await computeHashViaApi(getApiBase(), details);
+      const tx = await getContract(signer).issueCertificate(hash);
+      await tx.wait();
+      await saveCertOffChain(d, hash);
+      return hash;
+    }
+
+    async function saveCertOffChain(d, hash) {
+      let lastMsg = "off-chain save failed";
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const res = await fetch(`${getApiBase()}/api/certificates`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ issuerWallet: address, details: d }),
+        });
+        if (res.ok) return true;
+        lastMsg = (await res.json().catch(() => ({}))).error || lastMsg;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 2500));
+      }
+      throw new Error(`issued on-chain, but storing details failed: ${lastMsg}`);
+    }
+
+    // ---- Manual issue ----
+    const issueForm = document.getElementById("issueForm");
+    const issueBtn = document.getElementById("issueBtn");
+    const issueAlert = document.getElementById("issueAlert");
+    const issuedBox = document.getElementById("issuedBox");
+    const issuedHash = document.getElementById("issuedHash");
+
+    issueForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideAlert(issueAlert); issuedBox.classList.add("hidden");
+      const d = Object.fromEntries(new FormData(issueForm));
+      setLoading(issueBtn, true, "Issuing…");
+      try {
+        showAlert(issueAlert, "info", "Confirm the transaction in MetaMask…");
+        const hash = await issueOne(d);
+        showAlert(issueAlert, "ok", "Certificate issued and recorded.");
+        issuedHash.textContent = hash;
+        issuedBox.classList.remove("hidden");
+        issueForm.reset();
+        loadDashboard();
+      } catch (err) {
+        showAlert(issueAlert, "err", friendly(err));
+      } finally {
+        setLoading(issueBtn, false);
+      }
+    });
+
+    document.getElementById("copyHash").addEventListener("click", async (e) => {
+      const ok = await copyText(issuedHash.textContent);
+      e.target.textContent = ok ? "Copied" : "Copy";
+      setTimeout(() => (e.target.textContent = "Copy"), 1500);
+    });
+
+    // ---- Issue from a result file (CSV / JSON) ----
+    const REQUIRED = ["fullName", "matricNumber", "degreeTitle", "department", "yearOfGraduation"];
+    const ALIASES = {
+      fullname: "fullName", name: "fullName", studentname: "fullName",
+      matricnumber: "matricNumber", matric: "matricNumber", matricno: "matricNumber", regnumber: "matricNumber", regno: "matricNumber",
+      degreetitle: "degreeTitle", degree: "degreeTitle", course: "degreeTitle",
+      department: "department", dept: "department",
+      yearofgraduation: "yearOfGraduation", year: "yearOfGraduation", gradyear: "yearOfGraduation", graduationyear: "yearOfGraduation",
+    };
+    const normKey = (k) => String(k).toLowerCase().replace(/[^a-z0-9]/g, "");
+    let pendingRecords = [];
+
+    const fileInput = document.getElementById("fileInput");
+    const dropzone = document.getElementById("dropzone");
+    const filePreview = document.getElementById("filePreview");
+    const issueFileBtn = document.getElementById("issueFileBtn");
+    const fileAlert = document.getElementById("fileAlert");
+
+    document.getElementById("browseBtn").addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
+    dropzone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    ["dragover", "dragenter"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add("drag"); }));
+    ["dragleave", "drop"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove("drag"); }));
+    dropzone.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+    document.getElementById("tmplBtn").addEventListener("click", downloadTemplate);
+
+    async function handleFile(file) {
+      hideAlert(fileAlert);
+      try {
+        const text = await file.text();
+        let recs = /\.json$/i.test(file.name) || text.trim().startsWith("[") || text.trim().startsWith("{")
+          ? JSON.parse(text) : parseCSV(text);
+        if (!Array.isArray(recs)) recs = [recs];
+        pendingRecords = recs.map(normalizeRecord);
+        renderPreview(file.name);
+      } catch (err) {
+        showAlert(fileAlert, "err", "Couldn't read that file: " + err.message);
+      }
+    }
+
+    function normalizeRecord(o) {
+      const r = {};
+      for (const k in o) { const f = ALIASES[normKey(k)] || (REQUIRED.includes(k) ? k : null); if (f) r[f] = String(o[k] ?? "").trim(); }
+      return r;
+    }
+    const isValidRec = (r) => REQUIRED.every((f) => r[f] && r[f].length);
+
+    function renderPreview(filename) {
+      const valid = pendingRecords.filter(isValidRec);
+      const invalid = pendingRecords.length - valid.length;
+      if (!pendingRecords.length) { showAlert(fileAlert, "err", "No records found in that file."); return; }
+      const rows = valid.slice(0, 4).map((r) => `<tr><td>${esc(r.fullName)}</td><td>${esc(r.matricNumber)}</td><td>${esc(r.degreeTitle)}</td></tr>`).join("");
+      filePreview.innerHTML =
+        `<div class="muted" style="font-size:13.5px">${esc(filename)} — <strong>${valid.length}</strong> valid${invalid ? `, <span style="color:var(--danger)">${invalid} skipped</span>` : ""}</div>` +
+        (rows ? `<table class="mini-table"><thead><tr><th>Name</th><th>Matric</th><th>Degree</th></tr></thead><tbody>${rows}</tbody></table>${valid.length > 4 ? `<div class="faint" style="font-size:12px;margin-top:6px">+ ${valid.length - 4} more…</div>` : ""}` : "");
+      filePreview.classList.remove("hidden");
+      issueFileBtn.textContent = `Issue ${valid.length} certificate${valid.length === 1 ? "" : "s"}`;
+      issueFileBtn.classList.toggle("hidden", valid.length === 0);
+    }
+
+    issueFileBtn.addEventListener("click", async () => {
+      const valid = pendingRecords.filter(isValidRec);
+      if (!valid.length) return;
+      setLoading(issueFileBtn, true, "Issuing…");
+      let ok = 0, fail = 0;
+      for (let i = 0; i < valid.length; i++) {
+        showAlert(fileAlert, "info", `Issuing ${i + 1} of ${valid.length}… confirm in MetaMask.`);
+        try { await issueOne(valid[i]); ok++; } catch { fail++; }
+      }
+      showAlert(fileAlert, fail ? "err" : "ok", `Done — ${ok} issued${fail ? `, ${fail} failed (duplicates or rejected)` : ""}.`);
+      setLoading(issueFileBtn, false);
+      pendingRecords = []; filePreview.classList.add("hidden"); issueFileBtn.classList.add("hidden"); fileInput.value = "";
+      loadDashboard();
+    });
+
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+      if (!lines.length) return [];
+      const headers = splitCSV(lines[0]).map((h) => ALIASES[normKey(h)] || normKey(h));
+      return lines.slice(1).map((line) => {
+        const cells = splitCSV(line); const o = {};
+        headers.forEach((h, i) => (o[h] = (cells[i] ?? "").trim()));
+        return o;
+      });
+    }
+    function splitCSV(line) {
+      const out = []; let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+        else if (ch === '"') q = true;
+        else if (ch === ",") { out.push(cur); cur = ""; }
+        else cur += ch;
+      }
+      out.push(cur); return out;
+    }
+    function downloadTemplate() {
+      const csv = "fullName,matricNumber,degreeTitle,department,yearOfGraduation\nAda Obi,2021/1/0001,BSc Computer Science,Computer Science,2025\n";
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = "certificates-template.csv"; a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // ---- Issued certificates table + dashboard ----
+    const certTbody = document.getElementById("certTbody");
+    const certEmpty = document.getElementById("certEmpty");
+    const tableAlert = document.getElementById("tableAlert");
+    document.getElementById("refreshCerts").addEventListener("click", loadDashboard);
+    document.getElementById("certSearch").addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase();
+      certTbody.querySelectorAll("tr").forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? "" : "none"; });
+    });
+
+    async function loadDashboard() {
+      if (!address) return;
+      try {
+        const res = await fetch(`${getApiBase()}/api/certificates?issuer=${address}`);
+        const { certificates = [] } = await res.json();
+        document.getElementById("statIssued").textContent = certificates.length;
+        renderCerts(certificates);
+        updateStatuses(certificates);
+      } catch { /* best-effort */ }
+    }
+
+    function renderCerts(rows) {
+      certTbody.innerHTML = "";
+      const setStat = (id, v) => (document.getElementById(id).textContent = v);
+      if (!rows.length) { certEmpty.style.display = "block"; setStat("statActive", 0); setStat("statRevoked", 0); return; }
+      certEmpty.style.display = "none";
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        tr.dataset.hash = r.cert_hash;
+        tr.innerHTML =
+          `<td>${esc(r.full_name)}</td>` +
+          `<td>${esc(r.matric_number)}</td>` +
+          `<td>${esc(r.degree_title)} <span class="faint">· ${esc(r.department)}</span></td>` +
+          `<td>${esc(r.grad_year)}</td>` +
+          `<td>${fmtDate(r.issued_at)}</td>` +
+          `<td class="cell-status"><span class="status-badge status-pending">checking…</span></td>` +
+          `<td><button class="icon-link cell-copy mono" title="Copy full hash">${shortAddr(r.cert_hash)}</button></td>` +
+          `<td><button class="btn btn-ghost btn-sm cell-revoke">Revoke</button></td>`;
+        tr.querySelector(".cell-copy").addEventListener("click", async (e) => {
+          const ok = await copyText(r.cert_hash);
+          e.target.textContent = ok ? "Copied" : shortAddr(r.cert_hash);
+          setTimeout(() => (e.target.textContent = shortAddr(r.cert_hash)), 1200);
+        });
+        tr.querySelector(".cell-revoke").addEventListener("click", (e) => doRevoke(r.cert_hash, e.target));
+        certTbody.appendChild(tr);
+      }
+    }
+
+    async function updateStatuses(rows) {
+      const c = getContract(signer);
+      let active = 0, revoked = 0;
+      await Promise.all(rows.map(async (r) => {
+        try {
+          const v = await c.verifyCertificate(r.cert_hash);
+          const st = v.revoked ? "revoked" : (v.exists ? "active" : "missing");
+          if (st === "revoked") revoked++; else if (st === "active") active++;
+          setRowStatus(r.cert_hash, st);
+        } catch { setRowStatus(r.cert_hash, "unknown"); }
+      }));
+      document.getElementById("statActive").textContent = active;
+      document.getElementById("statRevoked").textContent = revoked;
+    }
+
+    function setRowStatus(hash, st) {
+      const tr = certTbody.querySelector(`tr[data-hash="${hash}"]`);
+      if (!tr) return;
+      const map = { active: ["status-active", "Active"], revoked: ["status-revoked", "Revoked"], missing: ["status-pending", "Not on-chain"], unknown: ["status-pending", "—"] };
+      const [cls, label] = map[st] || map.unknown;
+      tr.querySelector(".cell-status").innerHTML = `<span class="status-badge ${cls}">${label}</span>`;
+      const btn = tr.querySelector(".cell-revoke");
+      if (st !== "active") { btn.disabled = true; btn.textContent = st === "revoked" ? "Revoked" : "—"; }
+    }
+
+    async function doRevoke(hash, btn) {
+      hideAlert(tableAlert);
+      setLoading(btn, true, "…");
+      try {
+        const tx = await getContract(signer).revokeCertificate(hash);
+        await tx.wait();
+        showAlert(tableAlert, "ok", "Certificate revoked.");
+        loadDashboard();
+      } catch (err) {
+        setLoading(btn, false);
+        showAlert(tableAlert, "err", friendly(err));
+      }
+    }
+
+    const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    function fmtDate(s) { if (!s) return "—"; const d = new Date(String(s).replace(" ", "T") + "Z"); return isNaN(d) ? esc(s) : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+
+    function friendly(err) {
+      const m = (err.revert && err.revert.name) || err.shortMessage || err.reason || err.message || "Transaction failed.";
+      if (/NotIssuer/.test(m)) return "You can only revoke certificates your own institution issued.";
+      if (/CertificateNotFound/.test(m)) return "No certificate with that hash exists.";
+      if (/AlreadyRevoked/.test(m)) return "That certificate is already revoked.";
+      if (/CertificateExists/.test(m)) return "A certificate with these exact details already exists.";
+      if (/NotRegisteredInstitution/.test(m)) return "This wallet is not a registered institution.";
+      if (/user rejected/i.test(m)) return "Transaction rejected in MetaMask.";
+      return m;
+    }
+  </script>
+</body>
+</html>

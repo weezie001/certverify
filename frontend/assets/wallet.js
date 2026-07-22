@@ -1,0 +1,248 @@
+// Wallet adapter: EIP-6963 multi-injected discovery + WalletConnect (mobile/QR), with a
+// small styled picker modal. Returns an ethers BrowserProvider wrapping the chosen wallet.
+import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@6.13.2/+esm";
+import { getWalletConnectProjectId } from "./config.js";
+
+const SEPOLIA_DEC = 11155111;
+const SEPOLIA_HEX = "0xaa36a7";
+const SEPOLIA_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
+
+// ---------- EIP-6963 discovery ----------
+const injected = new Map(); // rdns -> { info, provider }
+window.addEventListener("eip6963:announceProvider", (e) => {
+  const { info, provider } = e.detail;
+  injected.set(info.rdns, { info, provider });
+});
+function requestInjected() {
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+}
+requestInjected(); // announce on load
+
+function injectedWallets() {
+  const list = [...injected.values()];
+  // Fallback for wallets that don't yet support EIP-6963.
+  if (list.length === 0 && typeof window.ethereum !== "undefined") {
+    list.push({ info: { name: "Browser Wallet", icon: null, rdns: "legacy.injected" }, provider: window.ethereum });
+  }
+  return list;
+}
+
+// ---------- WalletConnect (lazy-loaded) ----------
+let wcProvider;
+async function initWC() {
+  if (wcProvider) return wcProvider;
+  const projectId = getWalletConnectProjectId();
+  if (!projectId) {
+    throw new Error("Add a WalletConnect project ID in Network settings (free at cloud.reown.com).");
+  }
+  const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2");
+  wcProvider = await EthereumProvider.init({
+    projectId,
+    chains: [SEPOLIA_DEC],
+    showQrModal: true,
+    rpcMap: { [SEPOLIA_DEC]: SEPOLIA_RPC },
+    metadata: {
+      name: "CertVerify",
+      description: "Academic certificate verification",
+      url: location.origin,
+      icons: [],
+    },
+  });
+  return wcProvider;
+}
+async function getWalletConnectProvider() {
+  const p = await initWC();
+  await p.connect(); // opens the WalletConnect QR modal
+  return p;
+}
+
+// ---------- Network ----------
+async function ensureSepolia(eip1193) {
+  try {
+    const current = await eip1193.request({ method: "eth_chainId" });
+    if (current === SEPOLIA_HEX) return;
+    await eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA_HEX }] });
+  } catch (err) {
+    if (err && err.code === 4902) {
+      await eip1193.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: SEPOLIA_HEX, chainName: "Sepolia",
+          nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: [SEPOLIA_RPC], blockExplorerUrls: ["https://sepolia.etherscan.io"],
+        }],
+      });
+    }
+    // Otherwise let it pass; a wrong-network tx will surface a clear error downstream.
+  }
+}
+
+// ---------- Picker modal ----------
+function openWalletPicker() {
+  requestInjected();
+  return new Promise((resolve, reject) => {
+    setTimeout(() => buildModal(resolve, reject), 80); // give wallets a tick to announce
+  });
+}
+
+function buildModal(resolve, reject) {
+  const overlay = document.createElement("div");
+  overlay.className = "wallet-overlay";
+  const modal = document.createElement("div");
+  modal.className = "wallet-modal";
+  overlay.appendChild(modal);
+
+  const head = document.createElement("div");
+  head.className = "wallet-modal-head";
+  head.innerHTML = `<h3>Connect a wallet</h3>`;
+  const close = document.createElement("button");
+  close.className = "wallet-close";
+  close.setAttribute("aria-label", "Close");
+  close.innerHTML = "&times;";
+  head.appendChild(close);
+  modal.appendChild(head);
+
+  const list = document.createElement("div");
+  list.className = "wallet-list";
+  modal.appendChild(list);
+
+  const err = document.createElement("p");
+  err.className = "wallet-error";
+  modal.appendChild(err);
+
+  let done = false;
+  const cleanup = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") cancel(); };
+  const cancel = () => { if (done) return; done = true; cleanup(); reject(new Error("Connection cancelled")); };
+  const choose = (provider, info) => { if (done) return; done = true; cleanup(); resolve({ provider, info }); };
+  const showError = (m) => { err.textContent = m; err.classList.add("show"); };
+
+  close.onclick = cancel;
+  overlay.onclick = (e) => { if (e.target === overlay) cancel(); };
+  document.addEventListener("keydown", onKey);
+
+  // Injected wallets
+  const wallets = injectedWallets();
+  if (wallets.length === 0) {
+    const none = document.createElement("p");
+    none.className = "wallet-hint";
+    none.textContent = "No browser wallet detected. Use WalletConnect below, or install MetaMask.";
+    list.appendChild(none);
+  }
+  for (const w of wallets) {
+    const b = document.createElement("button");
+    b.className = "wallet-opt";
+    const icon = w.info.icon
+      ? `<img src="${w.info.icon}" alt="" />`
+      : `<span class="wallet-ico-fallback">${(w.info.name || "?").charAt(0)}</span>`;
+    b.innerHTML = `${icon}<span>${w.info.name || "Wallet"}</span>`;
+    b.onclick = () => choose(w.provider, w.info);
+    list.appendChild(b);
+  }
+
+  // Divider + WalletConnect
+  const sep = document.createElement("div");
+  sep.className = "wallet-sep";
+  sep.innerHTML = "<span>or</span>";
+  list.appendChild(sep);
+
+  const wc = document.createElement("button");
+  wc.className = "wallet-opt";
+  wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">· mobile / QR</span></span>`;
+  wc.onclick = async () => {
+    err.classList.remove("show");
+    wc.disabled = true;
+    wc.innerHTML = `<span class="spinner"></span><span>Opening WalletConnect…</span>`;
+    try {
+      const provider = await getWalletConnectProvider();
+      choose(provider, { name: "WalletConnect" });
+    } catch (e) {
+      wc.disabled = false;
+      wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">· mobile / QR</span></span>`;
+      showError(e.message || "WalletConnect failed");
+    }
+  };
+  list.appendChild(wc);
+
+  document.body.appendChild(overlay);
+}
+
+// ---------- Session persistence ----------
+const LAST = "certverify.lastWallet"; // remembers which wallet to silently reconnect
+let activeProvider = null;
+let onChangeCb = null;
+const wired = new WeakSet();
+
+function rdnsOf(info) {
+  if (info?.rdns) return info.rdns;
+  return info?.name === "WalletConnect" ? "walletconnect" : "legacy.injected";
+}
+
+function wireEvents(eip1193) {
+  if (!eip1193 || typeof eip1193.on !== "function" || wired.has(eip1193)) return;
+  wired.add(eip1193);
+  const fire = (...a) => { if (onChangeCb) onChangeCb(...a); };
+  eip1193.on("accountsChanged", fire);
+  eip1193.on("chainChanged", fire);
+  eip1193.on("disconnect", fire);
+}
+
+async function finalize(eip1193, info, { prompt }) {
+  if (prompt) await ensureSepolia(eip1193);
+  const browserProvider = new ethers.BrowserProvider(eip1193);
+  if (prompt) await browserProvider.send("eth_requestAccounts", []);
+  const accounts = await eip1193.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) throw new Error("No authorized account");
+  const signer = await browserProvider.getSigner();
+  const address = await signer.getAddress();
+  activeProvider = eip1193;
+  wireEvents(eip1193);
+  localStorage.setItem(LAST, rdnsOf(info));
+  return { provider: browserProvider, signer, address, wallet: info?.name || "Wallet" };
+}
+
+// ---------- Public API ----------
+
+/** Open the picker and connect (prompts the wallet). */
+export async function connectWallet() {
+  const { provider: eip1193, info } = await openWalletPicker();
+  return finalize(eip1193, info, { prompt: true });
+}
+
+/** Reconnect on page load WITHOUT prompting, if the wallet is still authorized. */
+export async function silentReconnect() {
+  const last = localStorage.getItem(LAST);
+  if (!last) return null;
+  try {
+    if (last === "walletconnect") {
+      if (!getWalletConnectProjectId()) return null;
+      const p = await initWC(); // restores a persisted WalletConnect session if present
+      if (!p.accounts || p.accounts.length === 0) return null;
+      return finalize(p, { name: "WalletConnect", rdns: "walletconnect" }, { prompt: false });
+    }
+    requestInjected();
+    await new Promise((r) => setTimeout(r, 140)); // let wallets announce
+    let entry = [...injected.values()].find((w) => w.info.rdns === last);
+    if (!entry && last === "legacy.injected" && typeof window.ethereum !== "undefined") {
+      entry = { info: { name: "Browser Wallet", rdns: "legacy.injected" }, provider: window.ethereum };
+    }
+    if (!entry) return null;
+    const accounts = await entry.provider.request({ method: "eth_accounts" });
+    if (!accounts || accounts.length === 0) return null; // no longer authorized
+    return finalize(entry.provider, entry.info, { prompt: false });
+  } catch {
+    return null;
+  }
+}
+
+/** Register a callback fired on account/chain/disconnect changes (set once at load). */
+export function onWalletChange(cb) {
+  onChangeCb = cb;
+}
+
+/** Forget the session and drop any WalletConnect session. */
+export async function disconnect() {
+  localStorage.removeItem(LAST);
+  try { if (wcProvider && typeof wcProvider.disconnect === "function") await wcProvider.disconnect(); } catch {}
+  activeProvider = null;
+}
