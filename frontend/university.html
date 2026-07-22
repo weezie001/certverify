@@ -193,24 +193,20 @@
     }
 
     // ---- Shared issue logic ----
-    async function issueOne(d) {
-      const details = { ...d, institutionName };
-      const hash = await computeHashViaApi(getApiBase(), details);
-      const tx = await getContract(signer).issueCertificate(hash);
-      await tx.wait();
-      await saveCertOffChain(d, hash);
-      return hash;
-    }
-
     async function saveCertOffChain(d, hash) {
       let lastMsg = "off-chain save failed";
       for (let attempt = 1; attempt <= 3; attempt++) {
-        const res = await fetch(`${getApiBase()}/api/certificates`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ issuerWallet: address, details: d }),
-        });
-        if (res.ok) return true;
-        lastMsg = (await res.json().catch(() => ({}))).error || lastMsg;
+        try {
+          const res = await fetch(`${getApiBase()}/api/certificates`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ issuerWallet: address, details: d }),
+            signal: AbortSignal.timeout(15000), // a hung backend must not stall the flow forever
+          });
+          if (res.ok) return true;
+          lastMsg = (await res.json().catch(() => ({}))).error || lastMsg;
+        } catch (e) {
+          lastMsg = e && e.name === "TimeoutError" ? "backend not responding" : (e.message || lastMsg);
+        }
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2500));
       }
       throw new Error(`issued on-chain, but storing details failed: ${lastMsg}`);
@@ -229,8 +225,15 @@
       const d = Object.fromEntries(new FormData(issueForm));
       setLoading(issueBtn, true, "Issuing…");
       try {
+        // Stage the messages honestly: telling the user to switch to their wallet
+        // BEFORE the request exists invites them to background this page mid-publish.
+        showAlert(issueAlert, "info", "Preparing certificate…");
+        const hash = await computeHashViaApi(getApiBase(), { ...d, institutionName });
         showAlert(issueAlert, "info", "Confirm the transaction in your wallet — it should open automatically; if not, switch to your wallet app.");
-        const hash = await issueOne(d);
+        const tx = await getContract(signer).issueCertificate(hash);
+        showAlert(issueAlert, "info", "Waiting for on-chain confirmation…");
+        await tx.wait();
+        await saveCertOffChain(d, hash);
         showAlert(issueAlert, "ok", "Certificate issued and recorded.");
         issuedHash.textContent = hash;
         issuedBox.classList.remove("hidden");
@@ -313,11 +316,26 @@
       const valid = pendingRecords.filter(isValidRec);
       if (!valid.length) return;
       setLoading(issueFileBtn, true, "Issuing…");
-      let ok = 0, fail = 0;
+      // Pipeline: only SIGNING is serial (one wallet prompt at a time). Mining
+      // (~12s/block) and the off-chain save run in the background while the next
+      // record is being signed — wallets queue transactions and manage nonces.
+      const settlements = [];
+      let failedSend = 0;
       for (let i = 0; i < valid.length; i++) {
-        showAlert(fileAlert, "info", `Issuing ${i + 1} of ${valid.length}… confirm in your wallet.`);
-        try { await issueOne(valid[i]); ok++; } catch { fail++; }
+        const d = valid[i];
+        showAlert(fileAlert, "info", `Record ${i + 1} of ${valid.length} — confirm in your wallet.`);
+        try {
+          const hash = await computeHashViaApi(getApiBase(), { ...d, institutionName });
+          const tx = await getContract(signer).issueCertificate(hash);
+          settlements.push(tx.wait().then(() => saveCertOffChain(d, hash)));
+        } catch { failedSend++; }
       }
+      if (settlements.length) {
+        showAlert(fileAlert, "info", `Waiting for ${settlements.length} transaction${settlements.length === 1 ? "" : "s"} to confirm on-chain…`);
+      }
+      const results = await Promise.allSettled(settlements);
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const fail = failedSend + (results.length - ok);
       showAlert(fileAlert, fail ? "err" : "ok", `Done — ${ok} issued${fail ? `, ${fail} failed (duplicates or rejected)` : ""}.`);
       setLoading(issueFileBtn, false);
       pendingRecords = []; filePreview.classList.add("hidden"); issueFileBtn.classList.add("hidden"); fileInput.value = "";
@@ -402,17 +420,21 @@
     }
 
     async function updateStatuses(rows) {
-      // One view call per row — must go over the direct RPC, never the wallet.
+      // One view call per row — over the direct RPC, never the wallet, and in small
+      // chunks so a big issuance history doesn't burst-rate-limit the public endpoint.
       const c = getReadContract();
       let active = 0, revoked = 0;
-      await Promise.all(rows.map(async (r) => {
-        try {
-          const v = await c.verifyCertificate(r.cert_hash);
-          const st = v.revoked ? "revoked" : (v.exists ? "active" : "missing");
-          if (st === "revoked") revoked++; else if (st === "active") active++;
-          setRowStatus(r.cert_hash, st);
-        } catch { setRowStatus(r.cert_hash, "unknown"); }
-      }));
+      const CHUNK = 8;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await Promise.all(rows.slice(i, i + CHUNK).map(async (r) => {
+          try {
+            const v = await c.verifyCertificate(r.cert_hash);
+            const st = v.revoked ? "revoked" : (v.exists ? "active" : "missing");
+            if (st === "revoked") revoked++; else if (st === "active") active++;
+            setRowStatus(r.cert_hash, st);
+          } catch { setRowStatus(r.cert_hash, "unknown"); }
+        }));
+      }
       document.getElementById("statActive").textContent = active;
       document.getElementById("statRevoked").textContent = revoked;
     }

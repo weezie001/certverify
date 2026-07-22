@@ -42,11 +42,18 @@ export function shortAddr(a) {
 
 /** Compute the canonical certificate hash via the backend (single source of truth). */
 export async function computeHashViaApi(apiBase, details) {
-  const res = await fetch(`${apiBase}/api/certificates/hash`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(details),
-  });
+  let res;
+  try {
+    res = await fetch(`${apiBase}/api/certificates/hash`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(details),
+      // A hung backend must fail fast, not leave the button spinning forever.
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (e) {
+    throw new Error(e && e.name === "TimeoutError" ? "backend not responding — try again" : (e.message || "network error"));
+  }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "failed to compute hash");
   return (await res.json()).hash;
 }

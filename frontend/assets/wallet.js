@@ -279,21 +279,73 @@ function buildModal(resolve, reject) {
 // ---------- Session persistence ----------
 const LAST = "certverify.lastWallet"; // remembers which wallet to silently reconnect
 let activeProvider = null;
+let activeAddress = ""; // lowercase current account — filters no-op accountsChanged
 let onChangeCb = null;
 const wired = new WeakSet();
+const lastChainSeen = new WeakMap(); // provider -> last numeric chainId acted upon
 
 function rdnsOf(info) {
   if (info?.rdns) return info.rdns;
   return info?.name === "WalletConnect" ? "walletconnect" : "legacy.injected";
 }
 
-function wireEvents(eip1193) {
+// The pages respond to onWalletChange with location.reload(), so every event forwarded
+// from here REBOOTS the page — killing any in-flight transaction and paying a full
+// relay re-handshake on mobile. Wallets are extremely chatty (MetaMask re-announces
+// accounts and flips chain context on every hop to the app and back), so raw
+// forwarding caused a reload storm. Only forward events that represent a REAL change.
+function wireEvents(eip1193, isWC) {
   if (!eip1193 || typeof eip1193.on !== "function" || wired.has(eip1193)) return;
   wired.add(eip1193);
   const fire = (...a) => { if (onChangeCb) onChangeCb(...a); };
-  eip1193.on("accountsChanged", fire);
-  eip1193.on("chainChanged", fire);
-  eip1193.on("disconnect", fire);
+
+  eip1193.on("accountsChanged", (accs) => {
+    const next = (Array.isArray(accs) && accs[0] ? String(accs[0]) : "").toLowerCase();
+    if (next && next === activeAddress) return; // same account re-announced — ignore
+    if (!next) {
+      // MetaMask emits an EMPTY list on lock and transiently on app switches. Acting on
+      // a transient empty reboots the page into a stranded disconnected state, so
+      // re-check before believing it.
+      setTimeout(async () => {
+        try {
+          const again = await eip1193.request({ method: "eth_accounts" });
+          const now = (Array.isArray(again) && again[0] ? String(again[0]) : "").toLowerCase();
+          if (now === activeAddress) return; // transient blip — still connected
+          fire("accountsChanged", again);
+        } catch {
+          fire("accountsChanged", accs);
+        }
+      }, 1200);
+      return;
+    }
+    fire("accountsChanged", accs);
+  });
+
+  eip1193.on("chainChanged", (cid) => {
+    const n = Number(cid);
+    if (isWC) {
+      // The session is pinned to Sepolia and every request is tagged with it, so
+      // wallet-side chain chatter is cosmetic — MetaMask announces a flip whenever its
+      // active network context shifts (including while presenting our own Sepolia
+      // request from a mainnet-active app). Reloading here killed pending transactions;
+      // quietly re-pin instead and never reboot the page.
+      if (Number.isFinite(n) && n !== SEPOLIA_DEC) pinSepolia(eip1193);
+      return;
+    }
+    // If the baseline read failed at connect time, seed it from this first event —
+    // the first announcement after connect cannot be a change the page hasn't seen.
+    if (!lastChainSeen.has(eip1193)) { lastChainSeen.set(eip1193, n); return; }
+    if (lastChainSeen.get(eip1193) === n) return; // duplicate announcement — ignore
+    lastChainSeen.set(eip1193, n);
+    fire("chainChanged", cid);
+  });
+
+  eip1193.on("disconnect", (e) => {
+    // WC surfaces transient relay drops as 'disconnect' while the session is intact;
+    // only a genuinely dead session warrants tearing the page down.
+    if (isWC && eip1193.session) return;
+    fire("disconnect", e);
+  });
 }
 
 // NOTE on mobile signing hand-off: sign-client itself deep-links the wallet app on every
@@ -321,6 +373,34 @@ async function pinSepolia(p) {
   } catch { /* a wrong-chain tx still surfaces a clear wallet-side error */ }
 }
 
+// The provider itself echoes wallet-side chain announcements with an internal switch
+// that can land AFTER our pin, briefly flipping the session default back to the
+// wallet's chain. A transaction submitted in that window would be routed to mainnet.
+// Re-pinning is a local no-relay call, so do it right before every signing request —
+// this deterministically closes the window. (No navigation here: deep-linking to the
+// wallet is sign-client's job, see the NOTE below.)
+const SIGNING_METHODS = new Set([
+  "eth_sendTransaction",
+  "eth_signTransaction",
+  "personal_sign",
+  "eth_sign",
+  "eth_signTypedData",
+  "eth_signTypedData_v3",
+  "eth_signTypedData_v4",
+]);
+function withChainGuard(p) {
+  const wrapped = {
+    request: async (args) => {
+      if (args && SIGNING_METHODS.has(args.method)) await pinSepolia(p);
+      return p.request(args);
+    },
+  };
+  for (const k of ["on", "off", "once", "removeListener", "removeAllListeners", "emit"]) {
+    if (typeof p[k] === "function") wrapped[k] = p[k].bind(p);
+  }
+  return wrapped;
+}
+
 async function finalize(eip1193, info, { prompt }) {
   // WalletConnect sessions come back from connect() already holding the accounts, so
   // the eth_requestAccounts prompt below is injected-wallet-only. The chain, however,
@@ -329,14 +409,22 @@ async function finalize(eip1193, info, { prompt }) {
   const isWC = rdnsOf(info) === "walletconnect";
   if (isWC) await pinSepolia(eip1193);
   if (prompt && !isWC) await ensureSepolia(eip1193);
-  const browserProvider = new ethers.BrowserProvider(eip1193);
+  // WC signing goes through the chain guard (re-pins Sepolia per signing request);
+  // events/pinning still use the raw provider.
+  const browserProvider = new ethers.BrowserProvider(isWC ? withChainGuard(eip1193) : eip1193);
   if (prompt && !isWC) await browserProvider.send("eth_requestAccounts", []);
   const accounts = await eip1193.request({ method: "eth_accounts" });
   if (!accounts || accounts.length === 0) throw new Error("No authorized account");
   const signer = await browserProvider.getSigner();
   const address = await signer.getAddress();
   activeProvider = eip1193;
-  wireEvents(eip1193);
+  activeAddress = address.toLowerCase();
+  // Baseline the injected wallet's chain so the first chainChanged that merely
+  // re-announces the current chain doesn't reload the page.
+  if (!isWC) {
+    try { lastChainSeen.set(eip1193, Number(await eip1193.request({ method: "eth_chainId" }))); } catch {}
+  }
+  wireEvents(eip1193, isWC);
   // Best-effort persistence — must never fail an otherwise successful connection.
   try { localStorage.setItem(LAST, rdnsOf(info)); } catch {}
   return { provider: browserProvider, signer, address, wallet: info?.name || "Wallet" };
@@ -358,17 +446,22 @@ export async function silentReconnect() {
     if (last === "walletconnect") {
       if (!getWalletConnectProjectId()) return null;
       const p = await initWC(); // restores a persisted WalletConnect session if present
+      // A manual connect may have completed while init was in flight; a stale reconnect
+      // must never overwrite it (it would silently swap the signer for later txs).
+      if (activeProvider) return null;
       if (!p.accounts || p.accounts.length === 0) return null;
       return finalize(p, { name: "WalletConnect", rdns: "walletconnect" }, { prompt: false });
     }
     requestInjected();
     await new Promise((r) => setTimeout(r, 140)); // let wallets announce
+    if (activeProvider) return null; // manual connect won the race
     let entry = [...injected.values()].find((w) => w.info.rdns === last);
     if (!entry && last === "legacy.injected" && typeof window.ethereum !== "undefined") {
       entry = { info: { name: "Browser Wallet", rdns: "legacy.injected" }, provider: window.ethereum };
     }
     if (!entry) return null;
     const accounts = await entry.provider.request({ method: "eth_accounts" });
+    if (activeProvider) return null; // manual connect won the race
     if (!accounts || accounts.length === 0) return null; // no longer authorized
     return finalize(entry.provider, entry.info, { prompt: false });
   } catch {
@@ -386,4 +479,5 @@ export async function disconnect() {
   localStorage.removeItem(LAST);
   try { if (wcProvider && typeof wcProvider.disconnect === "function") await wcProvider.disconnect(); } catch {}
   activeProvider = null;
+  activeAddress = "";
 }

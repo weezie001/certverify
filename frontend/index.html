@@ -164,7 +164,7 @@
       if (!raw) return;
       setLoading(btn, true, "Verifying…");
       try {
-        const res = await fetch(`${getApiBase()}/api/verify/${encodeURIComponent(raw)}`);
+        const res = await fetch(`${getApiBase()}/api/verify/${encodeURIComponent(raw)}`, { signal: AbortSignal.timeout(15000) });
         const data = await res.json();
         if (!res.ok) { showAlert(alertEl, "err", data.error || "Verification failed."); result.classList.add("hidden"); return; }
         render(data);

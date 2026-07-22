@@ -214,21 +214,26 @@
     async function saveOffChain(d) {
       let lastMsg = "off-chain save failed";
       for (let attempt = 1; attempt <= 3; attempt++) {
-        const res = await fetch(`${getApiBase()}/api/institutions`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            wallet: d.wallet,
-            abbreviation: d.abbreviation || null,
-            website: d.website || null,
-            country: d.country || null,
-            city: d.city || null,
-            accreditationNo: d.accreditationNo || null,
-            contactEmail: d.contactEmail || null,
-            contactPhone: d.contactPhone || null,
-          }),
-        });
-        if (res.ok) return true;
-        lastMsg = (await res.json().catch(() => ({}))).error || lastMsg;
+        try {
+          const res = await fetch(`${getApiBase()}/api/institutions`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              wallet: d.wallet,
+              abbreviation: d.abbreviation || null,
+              website: d.website || null,
+              country: d.country || null,
+              city: d.city || null,
+              accreditationNo: d.accreditationNo || null,
+              contactEmail: d.contactEmail || null,
+              contactPhone: d.contactPhone || null,
+            }),
+            signal: AbortSignal.timeout(15000), // hung backend must not stall the retry loop
+          });
+          if (res.ok) return true;
+          lastMsg = (await res.json().catch(() => ({}))).error || lastMsg;
+        } catch (e) {
+          lastMsg = e && e.name === "TimeoutError" ? "backend not responding" : (e.message || lastMsg);
+        }
         if (attempt < 3) {
           showAlert(regAlert, "info", `Saving contact details… (retry ${attempt})`);
           await new Promise((r) => setTimeout(r, 2500));
