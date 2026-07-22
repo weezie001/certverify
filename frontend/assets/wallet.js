@@ -152,7 +152,7 @@ function buildModal(resolve, reject) {
     const none = document.createElement("p");
     none.className = "wallet-hint";
     none.textContent = mobile
-      ? "No in-app wallet detected. Open this page in a wallet app below, or use WalletConnect."
+      ? "Use WalletConnect to approve in your wallet app and come straight back here."
       : "No browser wallet detected. Use WalletConnect below, or install MetaMask.";
     list.appendChild(none);
   }
@@ -167,33 +167,41 @@ function buildModal(resolve, reject) {
     list.appendChild(b);
   }
 
-  // On a phone: deep links that reopen this page inside the wallet app's browser.
+  // WalletConnect is built first so a phone can show it ABOVE the deep links: it hands
+  // you to the wallet app to approve and then returns you to THIS browser, session intact.
+  const wcLabel = mobile ? "· approve in your wallet, return here" : "· mobile / QR";
+  const wcInner = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">${wcLabel}</span></span>`;
+  const wc = document.createElement("button");
+  wc.className = "wallet-opt";
+  wc.innerHTML = wcInner;
+
+  const addSep = (text) => {
+    const s = document.createElement("div");
+    s.className = "wallet-sep";
+    s.innerHTML = `<span>${text}</span>`;
+    list.appendChild(s);
+  };
+
   if (mobile) {
-    const msep = document.createElement("div");
-    msep.className = "wallet-sep";
-    msep.innerHTML = "<span>open in a wallet app</span>";
-    list.appendChild(msep);
+    addSep("recommended");
+    list.appendChild(wc);
+    // Deep links stay available, but they REPLACE this browser with the wallet's own
+    // in-app browser — you don't come back here afterwards.
+    addSep("or open inside a wallet app");
     for (const w of MOBILE_WALLETS) {
       const b = document.createElement("button");
       b.className = "wallet-opt";
       b.innerHTML =
-        `<span class="wallet-ico-fallback">${w.initial}</span><span>${w.name}</span>` +
+        `<span class="wallet-ico-fallback">${w.initial}</span>` +
+        `<span>${w.name} <span class="faint">· leaves this page</span></span>` +
         `<span class="faint" style="margin-left:auto;font-size:13px">↗</span>`;
       b.onclick = () => { location.href = w.link(); };
       list.appendChild(b);
     }
+  } else {
+    addSep("or");
+    list.appendChild(wc);
   }
-
-  // Divider + WalletConnect
-  const sep = document.createElement("div");
-  sep.className = "wallet-sep";
-  sep.innerHTML = "<span>or</span>";
-  list.appendChild(sep);
-
-  const wcLabel = mobile ? "· choose your wallet app" : "· mobile / QR";
-  const wc = document.createElement("button");
-  wc.className = "wallet-opt";
-  wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">${wcLabel}</span></span>`;
   wc.onclick = async () => {
     err.classList.remove("show");
     wc.disabled = true;
@@ -203,11 +211,10 @@ function buildModal(resolve, reject) {
       choose(provider, { name: "WalletConnect" });
     } catch (e) {
       wc.disabled = false;
-      wc.innerHTML = `<span class="wallet-ico-fallback wc">⛓</span><span>WalletConnect <span class="faint">${wcLabel}</span></span>`;
+      wc.innerHTML = wcInner;
       showError(e.message || "WalletConnect failed");
     }
   };
-  list.appendChild(wc);
 
   document.body.appendChild(overlay);
 }
