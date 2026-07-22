@@ -8,7 +8,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "db:init": "node scripts/init-db.js"
+    "db:init": "node scripts/init-db.js",
+    "migrate": "node scripts/migrate.js",
+    "sync-abi": "node scripts/sync-abi.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
