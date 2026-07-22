@@ -51,50 +51,83 @@ const MOBILE_WALLETS = [
   },
 ];
 
-// ---------- WalletConnect (lazy-loaded) ----------
+// ---------- WalletConnect ----------
 let wcProvider;
-async function initWC() {
-  if (wcProvider) return wcProvider;
-  const projectId = getWalletConnectProjectId();
-  if (!projectId) {
-    throw new Error("WalletConnect is not configured (missing project ID).");
+let wcInitPromise; // memoized so a background pre-init and a user tap never double-init
+function initWC() {
+  if (!wcInitPromise) {
+    wcInitPromise = (async () => {
+      const projectId = getWalletConnectProjectId();
+      if (!projectId) {
+        throw new Error("WalletConnect is not configured (missing project ID).");
+      }
+      const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2");
+      wcProvider = await EthereumProvider.init({
+        projectId,
+        chains: [SEPOLIA_DEC],
+        showQrModal: true,
+        rpcMap: { [SEPOLIA_DEC]: SEPOLIA_RPC },
+        metadata: {
+          name: "CertVerify",
+          description: "Academic certificate verification",
+          url: location.origin,
+          icons: [`${location.origin}/favicon.ico`],
+          // The https URL the wallet app sends the user back to after it handles a
+          // request. Include the pathname so the phone returns to THIS page (origin
+          // alone would land on the verify page). No `native` entry — an empty native
+          // scheme makes some wallets attempt (and botch) a native redirect first.
+          redirect: { universal: location.origin + location.pathname },
+        },
+      });
+      return wcProvider;
+    })().catch((e) => {
+      wcInitPromise = undefined; // allow a retry after a failed init
+      throw e;
+    });
   }
-  const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2");
-  wcProvider = await EthereumProvider.init({
-    projectId,
-    chains: [SEPOLIA_DEC],
-    showQrModal: true,
-    rpcMap: { [SEPOLIA_DEC]: SEPOLIA_RPC },
-    metadata: {
-      name: "CertVerify",
-      description: "Academic certificate verification",
-      url: location.origin,
-      icons: [`${location.origin}/favicon.ico`],
-      // Without this the wallet app has nowhere to send the user back to, so MetaMask
-      // just stays open after approval. `universal` is the https URL the phone reopens.
-      redirect: { native: "", universal: location.origin },
-    },
-  });
-  return wcProvider;
+  return wcInitPromise;
 }
 
-// Warm the WalletConnect module in the background shortly after page load. The library
-// is a large download from esm.sh; fetching it lazily on tap was a big part of why
-// "Connect wallet" felt slow. The browser caches module imports, so initWC's own
-// import() becomes instant.
+// Pre-initialize in the background shortly after page load: downloads the library AND
+// completes the relay handshake, so tapping "WalletConnect" shows the wallet list
+// immediately instead of spending seconds on init first.
 if (getWalletConnectProjectId()) {
-  setTimeout(() => {
-    import("https://esm.sh/@walletconnect/ethereum-provider@2").catch(() => {});
-  }, 1500);
+  setTimeout(() => { initWC().catch(() => {}); }, 1500);
 }
+
+// While the user is off approving in the wallet app, the browser suspends this page and
+// its relay WebSocket with it. Without this, coming back to the browser meant waiting
+// out a slow automatic reconnect before the session events could arrive — the "returns
+// to Chrome but takes forever to actually connect" symptom. Reopen the transport the
+// moment the page becomes visible again.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !wcProvider) return;
+  try {
+    // EthereumProvider nests its SignClient under .signer — there is no .client on the
+    // provider itself (verified against @walletconnect/ethereum-provider 2.x source).
+    const relayer = wcProvider.signer?.client?.core?.relayer;
+    if (!relayer || relayer.connected) return;
+    const restart = relayer.restartTransport || relayer.transportOpen;
+    if (typeof restart === "function") restart.call(relayer).catch(() => {});
+  } catch { /* best-effort */ }
+});
 
 async function getWalletConnectProvider() {
   const p = await initWC();
   // Record the intent BEFORE the round-trip. If the browser discards this tab while the
   // user is approving in the wallet app, silentReconnect can still restore the session
   // when they come back — otherwise the page would look disconnected despite a live session.
+  // But if the attempt visibly fails or is cancelled, ROLL BACK: leaving 'walletconnect'
+  // here would clobber a previously working injected-wallet auto-reconnect. (A discarded
+  // tab never reaches the catch, so the rescue path above is preserved.)
+  const prev = localStorage.getItem(LAST);
   try { localStorage.setItem(LAST, "walletconnect"); } catch {}
-  await p.connect(); // opens the WalletConnect modal / deep-links to the wallet
+  try {
+    await p.connect(); // opens the WalletConnect modal / deep-links to the wallet
+  } catch (e) {
+    try { prev === null ? localStorage.removeItem(LAST) : localStorage.setItem(LAST, prev); } catch {}
+    throw e;
+  }
   return p;
 }
 
@@ -226,11 +259,17 @@ function buildModal(resolve, reject) {
     wc.innerHTML = `<span class="spinner"></span><span>Opening WalletConnect…</span>`;
     try {
       const provider = await getWalletConnectProvider();
-      choose(provider, { name: "WalletConnect" });
+      // Explicit rdns so isWC detection never depends on this display label.
+      choose(provider, { name: "WalletConnect", rdns: "walletconnect" });
     } catch (e) {
       wc.disabled = false;
       wc.innerHTML = wcInner;
-      showError(e.message || "WalletConnect failed");
+      // Closing the modal without approving surfaces as an upstream error string —
+      // present it as the cancel it is, not a failure.
+      const msg = /connection request reset|proposal expired|user rejected/i.test(e?.message || "")
+        ? "Cancelled — tap WalletConnect to try again."
+        : (e.message || "WalletConnect failed");
+      showError(msg);
     }
   };
 
@@ -258,16 +297,23 @@ function wireEvents(eip1193) {
 }
 
 async function finalize(eip1193, info, { prompt }) {
-  if (prompt) await ensureSepolia(eip1193);
+  // WalletConnect sessions come back from connect() already Sepolia-scoped with the
+  // accounts embedded — universal-provider answers eth_accounts / eth_chainId / an
+  // in-namespace wallet_switchEthereumChain locally, so the prompts below add pure
+  // latency for it (note: its eth_chainId also returns a decimal number, not hex, so
+  // ensureSepolia's comparison would misfire anyway). Only injected wallets need them.
+  const isWC = rdnsOf(info) === "walletconnect";
+  if (prompt && !isWC) await ensureSepolia(eip1193);
   const browserProvider = new ethers.BrowserProvider(eip1193);
-  if (prompt) await browserProvider.send("eth_requestAccounts", []);
+  if (prompt && !isWC) await browserProvider.send("eth_requestAccounts", []);
   const accounts = await eip1193.request({ method: "eth_accounts" });
   if (!accounts || accounts.length === 0) throw new Error("No authorized account");
   const signer = await browserProvider.getSigner();
   const address = await signer.getAddress();
   activeProvider = eip1193;
   wireEvents(eip1193);
-  localStorage.setItem(LAST, rdnsOf(info));
+  // Best-effort persistence — must never fail an otherwise successful connection.
+  try { localStorage.setItem(LAST, rdnsOf(info)); } catch {}
   return { provider: browserProvider, signer, address, wallet: info?.name || "Wallet" };
 }
 
