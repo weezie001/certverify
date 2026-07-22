@@ -78,6 +78,16 @@ async function initWC() {
   return wcProvider;
 }
 
+// Warm the WalletConnect module in the background shortly after page load. The library
+// is a large download from esm.sh; fetching it lazily on tap was a big part of why
+// "Connect wallet" felt slow. The browser caches module imports, so initWC's own
+// import() becomes instant.
+if (getWalletConnectProjectId()) {
+  setTimeout(() => {
+    import("https://esm.sh/@walletconnect/ethereum-provider@2").catch(() => {});
+  }, 1500);
+}
+
 async function getWalletConnectProvider() {
   const p = await initWC();
   // Record the intent BEFORE the round-trip. If the browser discards this tab while the

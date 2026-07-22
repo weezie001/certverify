@@ -121,7 +121,7 @@
 
   <script type="module">
     import { getApiBase } from "./assets/config.js";
-    import { connectWallet, silentReconnect, onWalletChange, disconnect, getContract, ethers, shortAddr } from "./assets/eth.js";
+    import { connectWallet, silentReconnect, onWalletChange, disconnect, getContract, getReadContract, ethers, shortAddr } from "./assets/eth.js";
     import { wireChrome, showAlert, hideAlert, setLoading } from "./assets/ui.js";
     wireChrome();
 
@@ -143,13 +143,17 @@
       els.addr.textContent = shortAddr(address);
       els.pill.classList.remove("hidden");
       els.connectBtn.classList.add("hidden");
-      const onchainAdmin = await getContract(signer).admin();
+      // Read via the direct RPC — routing this through the wallet is what made the
+      // dashboard take seconds to appear after connecting. The stats/directory fetch
+      // runs in parallel with the admin check instead of after it.
+      const adminPromise = getReadContract().admin();
+      loadDashboard();
+      const onchainAdmin = await adminPromise;
       if (onchainAdmin.toLowerCase() !== address.toLowerCase()) {
         els.notAdmin.classList.remove("hidden"); els.panel.classList.add("hidden"); return;
       }
       els.adminAddr.textContent = address;
       els.panel.classList.remove("hidden");
-      loadDashboard();
     }
 
     els.connectBtn.addEventListener("click", async () => {

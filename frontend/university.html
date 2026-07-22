@@ -134,7 +134,7 @@
 
   <script type="module">
     import { getApiBase } from "./assets/config.js";
-    import { connectWallet, silentReconnect, onWalletChange, disconnect, getContract, shortAddr, computeHashViaApi } from "./assets/eth.js";
+    import { connectWallet, silentReconnect, onWalletChange, disconnect, getContract, getReadContract, shortAddr, computeHashViaApi } from "./assets/eth.js";
     import { wireChrome, showAlert, hideAlert, setLoading, copyText } from "./assets/ui.js";
     wireChrome();
 
@@ -156,12 +156,15 @@
       els.addr.textContent = shortAddr(address);
       els.pill.classList.remove("hidden");
       els.connectBtn.classList.add("hidden");
-      const inst = await getContract(signer).institutions(address);
+      // Read via the direct RPC, not the wallet — much faster after connect. The
+      // certificate list loads in parallel with the registration check.
+      const instPromise = getReadContract().institutions(address);
+      loadDashboard();
+      const inst = await instPromise;
       if (!inst.registered) { els.notRegistered.classList.remove("hidden"); els.dash.classList.add("hidden"); return; }
       institutionName = inst.name;
       els.instName.textContent = inst.name;
       els.dash.classList.remove("hidden");
-      loadDashboard();
     }
 
     els.connectBtn.addEventListener("click", async () => {
@@ -399,7 +402,8 @@
     }
 
     async function updateStatuses(rows) {
-      const c = getContract(signer);
+      // One view call per row — must go over the direct RPC, never the wallet.
+      const c = getReadContract();
       let active = 0, revoked = 0;
       await Promise.all(rows.map(async (r) => {
         try {

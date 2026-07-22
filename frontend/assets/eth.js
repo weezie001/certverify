@@ -5,13 +5,35 @@ import { connectWallet, silentReconnect, onWalletChange, disconnect } from "./wa
 
 export { ethers, connectWallet, silentReconnect, onWalletChange, disconnect };
 
-/** Contract bound to a signer (for writes) or provider (for reads). */
+/** Contract bound to a signer — use ONLY for writes (issue / revoke / register). */
 export function getContract(runner) {
   const addr = getContractAddress();
   if (!addr) {
     throw new Error("Contract address is not set. Open “Network settings” and paste the deployed address.");
   }
   return new ethers.Contract(addr, ABI, runner);
+}
+
+// Reads must NOT go through the wallet: MetaMask adds a round-trip per call and the
+// WalletConnect relay can take seconds per request. A direct public RPC answers reads
+// in one fast HTTP call, and the wallet is only consulted when a signature is needed.
+const SEPOLIA_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
+let readProvider;
+export function getReadProvider() {
+  if (!readProvider) {
+    // Static network config skips eth_chainId detection on first use.
+    readProvider = new ethers.JsonRpcProvider(SEPOLIA_RPC, 11155111, { staticNetwork: true });
+  }
+  return readProvider;
+}
+
+/** Contract bound to the fast read-only RPC — use for all view calls. */
+export function getReadContract() {
+  const addr = getContractAddress();
+  if (!addr) {
+    throw new Error("Contract address is not set. Open “Network settings” and paste the deployed address.");
+  }
+  return new ethers.Contract(addr, ABI, getReadProvider());
 }
 
 export function shortAddr(a) {
