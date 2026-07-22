@@ -61,7 +61,7 @@ function initWC() {
       if (!projectId) {
         throw new Error("WalletConnect is not configured (missing project ID).");
       }
-      const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2");
+      const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2.23.10");
       wcProvider = await EthereumProvider.init({
         projectId,
         chains: [SEPOLIA_DEC],
@@ -295,6 +295,15 @@ function wireEvents(eip1193) {
   eip1193.on("chainChanged", fire);
   eip1193.on("disconnect", fire);
 }
+
+// NOTE on mobile signing hand-off: sign-client itself deep-links the wallet app on every
+// session request — it reads WALLETCONNECT_DEEPLINK_CHOICE and navigates to
+// `<href>/wc?requestId=…&sessionTopic=…` AFTER the request has published to the relay
+// (verified in @walletconnect/sign-client engine.request → handleDeeplinkRedirect).
+// Do NOT add a manual deep-link wrapper here: navigating before the publish completes
+// freezes this page's relay socket mid-send and the wallet opens to nothing — the exact
+// bug such a wrapper would be trying to fix. The built-in only works if the relay socket
+// is alive, which the visibilitychange restart above guarantees.
 
 async function finalize(eip1193, info, { prompt }) {
   // WalletConnect sessions come back from connect() already Sepolia-scoped with the

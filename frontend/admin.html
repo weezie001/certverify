@@ -189,7 +189,7 @@
       try {
         // 1) On-chain registration (skip gracefully if already registered).
         try {
-          showAlert(regAlert, "info", "Confirm the transaction in MetaMask…");
+          showAlert(regAlert, "info", "Confirm the transaction in your wallet — it should open automatically; if not, switch to your wallet app.");
           const tx = await getContract(signer).registerInstitution(d.wallet, d.name);
           showAlert(regAlert, "info", "Waiting for the transaction to confirm on-chain…");
           await tx.wait();

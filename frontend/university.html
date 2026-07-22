@@ -229,7 +229,7 @@
       const d = Object.fromEntries(new FormData(issueForm));
       setLoading(issueBtn, true, "Issuing…");
       try {
-        showAlert(issueAlert, "info", "Confirm the transaction in MetaMask…");
+        showAlert(issueAlert, "info", "Confirm the transaction in your wallet — it should open automatically; if not, switch to your wallet app.");
         const hash = await issueOne(d);
         showAlert(issueAlert, "ok", "Certificate issued and recorded.");
         issuedHash.textContent = hash;
@@ -315,7 +315,7 @@
       setLoading(issueFileBtn, true, "Issuing…");
       let ok = 0, fail = 0;
       for (let i = 0; i < valid.length; i++) {
-        showAlert(fileAlert, "info", `Issuing ${i + 1} of ${valid.length}… confirm in MetaMask.`);
+        showAlert(fileAlert, "info", `Issuing ${i + 1} of ${valid.length}… confirm in your wallet.`);
         try { await issueOne(valid[i]); ok++; } catch { fail++; }
       }
       showAlert(fileAlert, fail ? "err" : "ok", `Done — ${ok} issued${fail ? `, ${fail} failed (duplicates or rejected)` : ""}.`);
