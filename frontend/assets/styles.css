@@ -227,6 +227,34 @@ a:hover { color: var(--accent-hover); }
 .feature .fico { width: 34px; height: 34px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
 @media (max-width: 760px) { .feature-grid { grid-template-columns: 1fr; } .grid-2 { grid-template-columns: 1fr; } .detail-row { grid-template-columns: 1fr; gap: 2px; } }
 
+/* ---------- Small screens ---------- */
+@media (max-width: 640px) {
+  .container { padding: 0 16px; }
+
+  /* The nav is one flex row on desktop; on a phone it must wrap or it forces the
+     whole page to scroll sideways. Row 1: brand + wallet/connect + theme toggle.
+     Row 2: the nav links, full width and horizontally scrollable if needed. */
+  .nav-inner { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
+  .nav-links {
+    order: 3; width: 100%; margin-left: 0; gap: 2px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-links a { padding: 6px 10px; font-size: 14px; white-space: nowrap; }
+
+  .brand { font-size: 15px; }
+  #connectBtn { font-size: 14px; padding: 9px 13px; }
+  .wallet-pill { font-size: 12.5px; padding: 7px 10px; }
+  .icon-btn { width: 34px; height: 34px; }
+
+  .tile { padding: 20px; }
+  .hero-lite { padding: 44px 0 20px; }
+  .page { padding: 32px 0 64px; }
+
+  /* Keep long hashes/addresses from widening their container. */
+  .mono, .copy-row code { overflow-wrap: anywhere; }
+}
+
 footer { border-top: 1px solid var(--border); margin-top: 60px; padding: 30px 0; color: var(--text-faint); font-size: 13.5px; }
 
 details.settings { margin-top: 22px; font-size: 14px; }
@@ -242,6 +270,9 @@ details.settings[open] summary { margin-bottom: 14px; }
 .hero-lite .lead { margin: 16px auto 0; }
 
 .bento { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 6px; }
+/* Grid children default to min-width:auto, which lets wide content (tables) stretch the
+   tile past the viewport. Forcing 0 lets the inner overflow-x:auto scroll instead. */
+.bento > * { min-width: 0; }
 @media (min-width: 820px) {
   .bento { grid-template-columns: repeat(6, 1fr); align-items: start; }
   .b2 { grid-column: span 2; }
@@ -251,7 +282,7 @@ details.settings[open] summary { margin-bottom: 14px; }
 }
 
 .tile {
-  position: relative; overflow: hidden;
+  position: relative; overflow: hidden; min-width: 0;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 26px;
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
@@ -281,7 +312,7 @@ details.settings[open] summary { margin-bottom: 14px; }
 .tile .alert { max-width: none; }
 
 /* ---------- Data table (directory) ---------- */
-.table-wrap { overflow-x: auto; margin: 0 -6px; }
+.table-wrap { overflow-x: auto; max-width: 100%; margin: 0 -6px; -webkit-overflow-scrolling: touch; }
 .dtable { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 560px; }
 .dtable th {
   text-align: left; font-weight: 600; color: var(--text-muted); font-size: 12px;
