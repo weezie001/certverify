@@ -80,7 +80,7 @@ These mirror `backend/.env` (the file itself is never uploaded). Add them for Pr
 (and Preview) — via the Vercel dashboard (Project → Settings → Environment Variables) or CLI:
 ```bash
 vercel env add RPC_URL              # https://ethereum-sepolia-rpc.publicnode.com
-vercel env add CONTRACT_ADDRESS     # 0x217B1dF18AD33707aB0289a813483577c9a14E03
+vercel env add CONTRACT_ADDRESS     # 0xd017c0F939BeC9FbF622351ed2C56bD311aF4f00
 vercel env add TURSO_DATABASE_URL   # libsql://<your-db>.turso.io
 vercel env add TURSO_AUTH_TOKEN     # <your Turso token>
 ```

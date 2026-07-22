@@ -2,7 +2,7 @@
 // works before deployment and can be pointed at a local Hardhat node or Sepolia.
 // Edit defaults here, or use the "Network settings" panel in the UI.
 
-const DEFAULT_CONTRACT = "0x217B1dF18AD33707aB0289a813483577c9a14E03"; // Sepolia deployment
+const DEFAULT_CONTRACT = "0xd017c0F939BeC9FbF622351ed2C56bD311aF4f00"; // Sepolia deployment
 
 export function getApiBase() {
   const remote = location.hostname !== "localhost" && location.hostname !== "127.0.0.1";

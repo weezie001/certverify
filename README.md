@@ -5,7 +5,7 @@
 > No login, no phone calls, no waiting weeks.
 
 **🌐 Live demo:** https://certverify-eta.vercel.app
-**⛓️ Contract (Ethereum Sepolia):** [`0x217B1dF18AD33707aB0289a813483577c9a14E03`](https://sepolia.etherscan.io/address/0x217B1dF18AD33707aB0289a813483577c9a14E03)
+**⛓️ Contract (Ethereum Sepolia):** [`0xd017c0F939BeC9FbF622351ed2C56bD311aF4f00`](https://sepolia.etherscan.io/address/0xd017c0F939BeC9FbF622351ed2C56bD311aF4f00)
 
 Final-year project — **Hassan Blessing Sudir**, Cyber Security Science,
 Federal University of Technology, Minna.
