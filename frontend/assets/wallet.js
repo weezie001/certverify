@@ -305,13 +305,29 @@ function wireEvents(eip1193) {
 // bug such a wrapper would be trying to fix. The built-in only works if the relay socket
 // is alive, which the visibilitychange restart above guarantees.
 
+// MetaMask approves a WalletConnect session with ALL of its enabled chains and then
+// reports whichever network the app is currently on (often Ethereum mainnet). The
+// provider adopts that as the session's default chain — so transactions would be routed
+// to MAINNET and the wallet shows an "Ethereum" tx the user can't pay. Sepolia is the
+// session's required chain, so this switch resolves locally inside universal-provider:
+// no relay round-trip, no wallet prompt.
+async function pinSepolia(p) {
+  try {
+    // WC's eth_chainId returns a decimal number; injected wallets return hex. Number()
+    // parses both ("0xaa36a7" -> 11155111).
+    const current = Number(await p.request({ method: "eth_chainId" }));
+    if (current === SEPOLIA_DEC) return;
+    await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA_HEX }] });
+  } catch { /* a wrong-chain tx still surfaces a clear wallet-side error */ }
+}
+
 async function finalize(eip1193, info, { prompt }) {
-  // WalletConnect sessions come back from connect() already Sepolia-scoped with the
-  // accounts embedded — universal-provider answers eth_accounts / eth_chainId / an
-  // in-namespace wallet_switchEthereumChain locally, so the prompts below add pure
-  // latency for it (note: its eth_chainId also returns a decimal number, not hex, so
-  // ensureSepolia's comparison would misfire anyway). Only injected wallets need them.
+  // WalletConnect sessions come back from connect() already holding the accounts, so
+  // the eth_requestAccounts prompt below is injected-wallet-only. The chain, however,
+  // MUST be pinned for WC (see pinSepolia) — and before ethers.BrowserProvider is
+  // built, so its network detection sees Sepolia rather than the wallet's active chain.
   const isWC = rdnsOf(info) === "walletconnect";
+  if (isWC) await pinSepolia(eip1193);
   if (prompt && !isWC) await ensureSepolia(eip1193);
   const browserProvider = new ethers.BrowserProvider(eip1193);
   if (prompt && !isWC) await browserProvider.send("eth_requestAccounts", []);
